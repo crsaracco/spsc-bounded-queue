@@ -1,17 +1,17 @@
 [package]
-name = "bounded-spsc-queue"
-version = "0.4.0"
-authors = ["Zachary Tong <zacharyjtong@gmail.com>"]
+name = "spsc-bounded-queue"
+version = "0.0.1"
+authors = [
+"Charles Saracco <crsaracco@gmail.com>",
+"Zachary Tong <zacharyjtong@gmail.com>"
+]
 license = "Apache-2.0"
-description = "A bounded SPSC queue"
+description = "A bounded SPSC queue."
 
-repository = "https://github.com/polyfractal/bounded-spsc-queue"
-homepage = "https://github.com/polyfractal/bounded-spsc-queue"
-documentation = "https://polyfractal.github.io/bounded-spsc-queue/bounded_spsc_queue/"
-keywords = ["data-structures"]
+repository = "https://github.com/crsaracco/spsc-bounded-queue"
+homepage = "https://github.com/crsaracco/spsc-bounded-queue"
+keywords = ["data-structures", "queue", "buffer", "spsc", "lock-free", "concurrency"]
 readme = "README.md"
-
-
 
 [lib]
 name = "bounded_spsc_queue"
