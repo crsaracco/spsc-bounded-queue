@@ -10,7 +10,7 @@ description = "A bounded SPSC queue."
 
 repository = "https://github.com/crsaracco/spsc-bounded-queue"
 homepage = "https://github.com/crsaracco/spsc-bounded-queue"
-keywords = ["data-structures", "queue", "buffer", "spsc", "lock-free", "concurrency"]
+keywords = ["data-structures", "queue", "buffer", "spsc", "lock-free"]
 readme = "README.md"
 
 [lib]
