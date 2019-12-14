@@ -1,6 +1,8 @@
 
 ## Bounded SPSC Queue
 
+**NOTE:** This repo is a hard fork of [Polyfractal's `bounded-spsc-queue`](https://github.com/polyfractal/bounded-spsc-queue), since I noticed it hadn't been updated in a while.
+
 [![Nightly Build Status](https://travis-ci.org/polyfractal/bounded-spsc-queue.svg?branch=master)](https://travis-ci.org/polyfractal/bounded-spsc-queue)
 
 This crate provides a very simple bounded, Single-producer Single-consumer (SPSC)
