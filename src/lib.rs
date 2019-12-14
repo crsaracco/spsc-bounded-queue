@@ -22,7 +22,7 @@ macro_rules! cacheline_pad {
 /// ring buffer, as well as a head and tail atomicUsize which the producer and consumer
 /// use to track location in the ring.
 #[repr(C)]
-pub struct Buffer<T> {
+struct Buffer<T> {
     /// A pointer to the allocated ring buffer
     buffer: *mut T,
 
