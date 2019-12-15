@@ -7,6 +7,7 @@ use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::usize;
+use std::marker::PhantomData;
 
 const CACHELINE_LEN: usize = 64;
 
@@ -50,19 +51,25 @@ struct Buffer<T> {
     _padding3: [usize; cacheline_pad!(2)],
 }
 
+// The buffer itself should be Send and Sync so that we can share the two endpoints between threads.
 unsafe impl<T: Send> Send for Buffer<T> {}
 unsafe impl<T: Sync> Sync for Buffer<T> {}
 
 /// A handle to the queue which allows consuming values from the buffer
 pub struct Consumer<T> {
     buffer: Arc<Buffer<T>>,
+    _marker: PhantomData<*const T>, // un-implement Sync for Consumer
 }
 
 /// A handle to the queue which allows adding values onto the buffer
 pub struct Producer<T> {
     buffer: Arc<Buffer<T>>,
+    _marker: PhantomData<*const T>, // un-implement Sync for Producer
 }
 
+// Consumer and Producer should be Send so that we can send them to a different thread.
+// They should **not** be Sync because this is a SPSC queue; both endpoints are only able to be
+// safely used in one thread at a time, each.
 unsafe impl<T: Send> Send for Consumer<T> {}
 unsafe impl<T: Send> Send for Producer<T> {}
 
@@ -307,7 +314,7 @@ impl<T> Drop for Buffer<T> {
 /// If the requested queue size is larger than available memory (e.g.
 /// `capacity.next_power_of_two() * size_of::<T>() > available memory` ), this function will abort
 /// with an OOM panic.
-pub fn make<T>(capacity: usize) -> (Producer<T>, Consumer<T>) {
+pub fn make<'a, T: 'a>(capacity: usize) -> (Producer<T>, Consumer<T>) {
     let ptr = unsafe { allocate_buffer(capacity) };
 
     let arc = Arc::new(Buffer {
@@ -328,9 +335,11 @@ pub fn make<T>(capacity: usize) -> (Producer<T>, Consumer<T>) {
     (
         Producer {
             buffer: arc.clone(),
+            _marker: PhantomData,
         },
         Consumer {
             buffer: arc.clone(),
+            _marker: PhantomData,
         },
     )
 }
