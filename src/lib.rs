@@ -27,7 +27,7 @@ struct Buffer<T> {
     buffer: *mut T,
 
     /// The bounded size as specified by the user.  If the queue reaches capacity, it will block
-    /// until values are poppped off.
+    /// until values are popped off.
     capacity: usize,
 
     /// The allocated size of the ring buffer, in terms of number of values (not physical memory).
@@ -50,6 +50,7 @@ struct Buffer<T> {
     _padding3: [usize; cacheline_pad!(2)],
 }
 
+unsafe impl<T: Send> Send for Buffer<T> {}
 unsafe impl<T: Sync> Sync for Buffer<T> {}
 
 /// A handle to the queue which allows consuming values from the buffer
