@@ -14,7 +14,7 @@ keywords = ["data-structures", "queue", "buffer", "spsc", "lock-free"]
 readme = "README.md"
 
 [lib]
-name = "bounded_spsc_queue"
+name = "spsc_bounded_queue"
 doctest = false
 
 [[bench]]
