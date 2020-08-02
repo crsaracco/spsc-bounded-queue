@@ -1,4 +1,4 @@
-extern crate bounded_spsc_queue;
+extern crate spsc_bounded_queue;
 #[macro_use]
 extern crate criterion;
 extern crate time;
@@ -106,7 +106,7 @@ fn bench_chan_threaded2(b: &mut Bencher) {
 }
 
 fn bench_spsc(b: &mut Bencher) {
-    let (p, c) = bounded_spsc_queue::make(500);
+    let (p, c) = spsc_bounded_queue::make(500);
 
     b.iter(|| {
         p.push(1);
@@ -115,7 +115,7 @@ fn bench_spsc(b: &mut Bencher) {
 }
 
 fn bench_spsc_threaded(b: &mut Bencher) {
-    let (p, c) = bounded_spsc_queue::make(500);
+    let (p, c) = spsc_bounded_queue::make(500);
 
     let flag = AtomicBool::new(false);
     let arc_flag = Arc::new(flag);
@@ -142,7 +142,7 @@ fn bench_spsc_threaded(b: &mut Bencher) {
 }
 
 fn bench_spsc_threaded2(b: &mut Bencher) {
-    let (p, c) = bounded_spsc_queue::make(500);
+    let (p, c) = spsc_bounded_queue::make(500);
 
     let flag = AtomicBool::new(false);
     let arc_flag = Arc::new(flag);
