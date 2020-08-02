@@ -13,6 +13,9 @@ homepage = "https://github.com/crsaracco/spsc-bounded-queue"
 keywords = ["data-structures", "queue", "buffer", "spsc", "lock-free"]
 readme = "README.md"
 
+[dependencies]
+cache-padded = "1.1.1"
+
 [lib]
 name = "spsc_bounded_queue"
 doctest = false

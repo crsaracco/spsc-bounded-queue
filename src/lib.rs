@@ -7,12 +7,16 @@ use std::sync::Arc;
 use std::usize;
 use std::marker::PhantomData;
 
-const CACHELINE_LEN: usize = 64;
+use cache_padded::CachePadded;
 
-macro_rules! cacheline_pad {
-    ($N:expr) => {
-        CACHELINE_LEN / std::mem::size_of::<usize>() - $N
-    };
+struct ConsumerMetadata {
+    head: AtomicUsize,
+    shadow_tail: Cell<usize>,
+}
+
+struct ProducerMetadata {
+    tail: AtomicUsize,
+    shadow_head: Cell<usize>,
 }
 
 /// The internal memory buffer used by the queue.
@@ -31,22 +35,13 @@ struct Buffer<T> {
 
     /// The allocated size of the ring buffer, in terms of number of values (not physical memory).
     /// This will be the next power of two larger than `capacity`
-    allocated_size: usize,
-    _padding1: [usize; cacheline_pad!(3)],
+    allocated_size: CachePadded<usize>,
 
     /// Consumer cacheline:
-
-    /// Index position of the current head
-    head: AtomicUsize,
-    shadow_tail: Cell<usize>,
-    _padding2: [usize; cacheline_pad!(2)],
+    consumer_metadata: CachePadded<ConsumerMetadata>,
 
     /// Producer cacheline:
-
-    /// Index position of current tail
-    tail: AtomicUsize,
-    shadow_head: Cell<usize>,
-    _padding3: [usize; cacheline_pad!(2)],
+    producer_metadata: CachePadded<ProducerMetadata>,
 }
 
 // The buffer itself should be Send and Sync so that we can share the two endpoints between threads.
@@ -89,17 +84,17 @@ impl<T> Buffer<T> {
     /// }
     /// ```
     pub fn try_pop(&self) -> Option<T> {
-        let current_head = self.head.load(Ordering::Relaxed);
+        let current_head = self.consumer_metadata.head.load(Ordering::Relaxed);
 
-        if current_head == self.shadow_tail.get() {
-            self.shadow_tail.set(self.tail.load(Ordering::Acquire));
-            if current_head == self.shadow_tail.get() {
+        if current_head == self.consumer_metadata.shadow_tail.get() {
+            self.consumer_metadata.shadow_tail.set(self.producer_metadata.tail.load(Ordering::Acquire));
+            if current_head == self.consumer_metadata.shadow_tail.get() {
                 return None;
             }
         }
 
         let v = unsafe { ptr::read(self.load(current_head)) };
-        self.head
+        self.consumer_metadata.head
             .store(current_head.wrapping_add(1), Ordering::Release);
         Some(v)
     }
@@ -114,17 +109,17 @@ impl<T> Buffer<T> {
     /// objects skipped over will not be called. This function is intended to be used on buffers that
     /// contain non-`Drop` data, such as a `Buffer<f32>`.
     pub fn skip_n(&self, n: usize) -> usize {
-        let current_head = self.head.load(Ordering::Relaxed);
+        let current_head = self.consumer_metadata.head.load(Ordering::Relaxed);
 
-        self.shadow_tail.set(self.tail.load(Ordering::Acquire));
-        if current_head == self.shadow_tail.get() {
+        self.consumer_metadata.shadow_tail.set(self.producer_metadata.tail.load(Ordering::Acquire));
+        if current_head == self.consumer_metadata.shadow_tail.get() {
             return 0;
         }
-        let mut diff = self.shadow_tail.get().wrapping_sub(current_head);
+        let mut diff = self.consumer_metadata.shadow_tail.get().wrapping_sub(current_head);
         if diff > n {
             diff = n
         }
-        self.head
+        self.consumer_metadata.head
             .store(current_head.wrapping_add(diff), Ordering::Release);
         diff
     }
@@ -168,11 +163,11 @@ impl<T> Buffer<T> {
     /// }
     /// ```
     pub fn try_push(&self, v: T) -> Option<T> {
-        let current_tail = self.tail.load(Ordering::Relaxed);
+        let current_tail = self.producer_metadata.tail.load(Ordering::Relaxed);
 
-        if self.shadow_head.get() + self.capacity <= current_tail {
-            self.shadow_head.set(self.head.load(Ordering::Relaxed));
-            if self.shadow_head.get() + self.capacity <= current_tail {
+        if self.producer_metadata.shadow_head.get() + self.capacity <= current_tail {
+            self.producer_metadata.shadow_head.set(self.consumer_metadata.head.load(Ordering::Relaxed));
+            if self.producer_metadata.shadow_head.get() + self.capacity <= current_tail {
                 return Some(v);
             }
         }
@@ -180,7 +175,7 @@ impl<T> Buffer<T> {
         unsafe {
             self.store(current_tail, v);
         }
-        self.tail
+        self.producer_metadata.tail
             .store(current_tail.wrapping_add(1), Ordering::Release);
         None
     }
@@ -221,7 +216,7 @@ impl<T> Buffer<T> {
     #[inline]
     unsafe fn load(&self, pos: usize) -> &T {
         &*self.buffer
-            .offset((pos & (self.allocated_size - 1)) as isize)
+            .offset((pos & (self.allocated_size.into_inner() - 1)) as isize)
     }
 
     /// Store a value in the buffer
@@ -233,7 +228,7 @@ impl<T> Buffer<T> {
     #[inline]
     unsafe fn store(&self, pos: usize, v: T) {
         let end = self.buffer
-            .offset((pos & (self.allocated_size - 1)) as isize);
+            .offset((pos & (self.allocated_size.into_inner() - 1)) as isize);
         ptr::write(&mut *end, v);
     }
 }
@@ -251,7 +246,7 @@ impl<T> Drop for Buffer<T> {
         if mem::size_of::<T>() > 0 {
             unsafe {
                 let layout = Layout::from_size_align(
-                    self.allocated_size * mem::size_of::<T>(),
+                    self.allocated_size.into_inner() * mem::size_of::<T>(),
                     mem::align_of::<T>(),
                 ).unwrap();
                 alloc::dealloc(self.buffer as *mut u8, layout);
@@ -318,16 +313,17 @@ pub fn make<'a, T: 'a>(capacity: usize) -> (Producer<T>, Consumer<T>) {
     let arc = Arc::new(Buffer {
         buffer: ptr,
         capacity,
-        allocated_size: capacity.next_power_of_two(),
-        _padding1: [0; cacheline_pad!(3)],
+        allocated_size: CachePadded::new(capacity.next_power_of_two()),
 
-        head: AtomicUsize::new(0),
-        shadow_tail: Cell::new(0),
-        _padding2: [0; cacheline_pad!(2)],
+        consumer_metadata: CachePadded::new(ConsumerMetadata{
+            head: AtomicUsize::new(0),
+            shadow_tail: Cell::new(0),
+        }),
 
-        tail: AtomicUsize::new(0),
-        shadow_head: Cell::new(0),
-        _padding3: [0; cacheline_pad!(2)],
+        producer_metadata: CachePadded::new(ProducerMetadata{
+            tail: AtomicUsize::new(0),
+            shadow_head: Cell::new(0),
+        }),
     });
 
     (
@@ -438,7 +434,7 @@ impl<T> Producer<T> {
     /// assert!(producer.size() == 1);
     /// ```
     pub fn size(&self) -> usize {
-        (*self.buffer).tail.load(Ordering::Acquire) - (*self.buffer).head.load(Ordering::Acquire)
+        (*self.buffer).producer_metadata.tail.load(Ordering::Acquire) - (*self.buffer).consumer_metadata.head.load(Ordering::Acquire)
     }
 
     /// Returns the available space in the queue
@@ -562,7 +558,7 @@ impl<T> Consumer<T> {
     /// assert!(producer.size() == 9);
     /// ```
     pub fn size(&self) -> usize {
-        (*self.buffer).tail.load(Ordering::Acquire) - (*self.buffer).head.load(Ordering::Acquire)
+        (*self.buffer).producer_metadata.tail.load(Ordering::Acquire) - (*self.buffer).consumer_metadata.head.load(Ordering::Acquire)
     }
 }
 
@@ -571,11 +567,6 @@ mod tests {
 
     use super::*;
     use std::thread;
-
-    #[test]
-    fn test_buffer_size() {
-        assert_eq!(::std::mem::size_of::<Buffer<()>>(), 3 * CACHELINE_LEN);
-    }
 
     #[test]
     fn test_producer_push() {
