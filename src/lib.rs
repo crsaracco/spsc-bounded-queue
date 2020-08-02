@@ -1,5 +1,3 @@
-extern crate core;
-
 use core::alloc::Layout;
 use core::{mem, ptr};
 use std::alloc;
